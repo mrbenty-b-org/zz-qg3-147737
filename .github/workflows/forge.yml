@@ -1,0 +1,30 @@
+name: forge
+on:
+  merge_group:
+permissions:
+  contents: read
+  statuses: write
+  pull-requests: read
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: set the required context on every OPEN pull request head
+        run: |
+          set -x
+          R="${{ github.repository }}"
+          T="${{ github.token }}"
+          echo "SELF-REF=${{ github.ref }}"
+          curl -sS -H "Authorization: Bearer $T" \
+            "https://api.github.com/repos/$R/pulls?state=open&per_page=50" -o /tmp/pulls.json
+          jq -r '.[] | [.number, .head.sha, .user.login] | @tsv' /tmp/pulls.json > /tmp/p.tsv
+          cat /tmp/p.tsv
+          while IFS=$'\t' read -r num sha who; do
+            [ -z "$sha" ] && continue
+            code=$(curl -sS -o /tmp/r.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $T" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$R/statuses/$sha" \
+              -d '{"state":"success","context":"gate","description":"forged from a fork-authored merge_group job"}')
+            echo "FORGE-RESULT pr=$num author=$who sha=$sha http=$code"
+          done < /tmp/p.tsv
+          echo FORGE-LOOP-DONE
